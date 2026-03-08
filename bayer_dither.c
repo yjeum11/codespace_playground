@@ -10,39 +10,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-void image_to_gray(unsigned char *output, unsigned char *data, int x, int y, int N) {
-    // first try averaging RGB data
-    for (int i = 0; i < y; ++i) {
-        for (int j = 0; j < x; ++j) {
-            int pixel_index = (i*x + j) * N;
-            int output_index = i*x + j;
-            unsigned char average;
-            if (N == 2) {
-                // already grayscale
-                average = data[pixel_index];
-            } else {
-                // weights from photoshop or GIMP. doesn't matter too much.
-                average = 0.30 * data[pixel_index] + 0.59 * data[pixel_index + 1] + 0.11 * data[pixel_index + 2];
-            }
-            output[output_index] = average;
-        }
-    }
-}
-
-void gray_to_image(unsigned char *output, unsigned char *data, int x, int y, int N) {
-    for (int i = 0; i < y; ++i) {
-        for (int j = 0; j < x; ++j) {
-            int pixel_index = (i*x + j) * N;
-            int gray_index = i*x + j;
-
-            for (int k = 0; k < N-1; ++k) {
-                output[pixel_index+k] = data[gray_index];
-            }
-            output[pixel_index+N-1] = 255;
-        }
-    }
-}
-
 void bayer_4x4(unsigned char *gray_data, int x, int y, int invert) {
     unsigned char bayer_matrix[16] = {
         0, 8, 2, 10,
@@ -100,24 +67,16 @@ int main(int argc, char *argv[]) {
     }
 
     int image_x, image_y, image_nchannels;
-    unsigned char *image_data = stbi_load(infile, &image_x, &image_y, &image_nchannels, 0);
+    unsigned char *image_data = stbi_load(infile, &image_x, &image_y, &image_nchannels, 1);
     if (image_data == NULL) {
         printf("Error in reading file %s. Aborting...\n", infile);
         return -1;
     }
-    // just store 1 byte per pixel for grayscale
-    unsigned char *gray_data = malloc(sizeof(unsigned char) * image_x * image_y);
 
-    // Convert to grayscale (and compress data)
-    image_to_gray(gray_data, image_data, image_x, image_y, image_nchannels);
+    bayer_4x4(image_data, image_x, image_y, invert);
 
-    bayer_4x4(gray_data, image_x, image_y, invert);
-
-    // Convert back to raw image data from my compressed data
-    gray_to_image(image_data, gray_data, image_x, image_y, image_nchannels);
-    stbi_write_png(outfile, image_x, image_y, image_nchannels, image_data, image_x * image_nchannels);
+    stbi_write_png(outfile, image_x, image_y, 1, image_data, image_x);
 
     stbi_image_free(image_data);
-    free(gray_data);
     return 0;
 }
