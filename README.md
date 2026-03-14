@@ -2,10 +2,10 @@
 
 ## Dithering
 
-![golden](dithering/golden.png)
+![golden](dithering/david.png)
 
 Input
 
-![output](dithering/output_golden.png)
+![output](dithering/output_david.png)
 
-Output of 4x4 dithering.
+Output of 16x16 dithering.
