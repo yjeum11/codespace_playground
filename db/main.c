@@ -1,3 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 500
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -86,15 +89,29 @@ void wait_for_child(int *status, pid_t child_pid, app_state_t *state, bp_list_t 
     }
     if (WIFSTOPPED(*status)) {
         // printf("process stopped by signal %s\n", strsignal(WSTOPSIG(*status)));
+        siginfo_t siginfo;
+        ptrace(PTRACE_GETSIGINFO, child_pid, NULL, &siginfo);
+
+        if (siginfo.si_signo == SIGTRAP) {
+            if (siginfo.si_code == SI_KERNEL) {
+                printf("breakpoint!\n");
+            } else if (siginfo.si_code == TRAP_TRACE) {
+                printf("regular trace.\n");
+            }
+        }
+
         struct user_regs_struct reg_buf;
 
         if (ptrace(PTRACE_GETREGS, child_pid, 0L, &reg_buf) == -1)
             printf("ptrace error\n");
         
         // CPU increments rip by 1 byte after hitting interrupt
+        // after thebreakpoint has been hit, we want to rewind the state of the cpu
+        // such that it's right before hitting the breakpoint.
+        // so the next 'n' will execute the instruction that the breakpoint shadowed
         long breakpoint = ptrace(PTRACE_PEEKDATA, child_pid, reg_buf.rip - 0x1, NULL);
         if ((breakpoint & 0xFF) == 0xCC) {
-            printf("hit breakpoint at address %lx\n", reg_buf.rip - 0x1);
+            printf("hit breakpoint at address %llx\n", reg_buf.rip - 0x1);
             bp_node_t *p = bp_list->head;
             breakpoint_info_t *hit_breakpoint = NULL;
             while (p != NULL) {
@@ -215,6 +232,11 @@ int main(int argc, char **argv) {
             } else {
                 ptrace(PTRACE_SINGLESTEP, child_pid, 0, 0);
                 wait_for_child(&status, child_pid, &curr_state, breakpoints);
+                // if 'n' landed on an active breakpoint, we can just say we landed 
+                // on a breakpoint and then disable the INT3 instruction since we
+                // are already stopped.
+                // we can track this maybe with an argument to wait_for_child which checks that
+
             }
         } else if (0 == strcmp(tokens[0], "rip")) {
             struct user_regs_struct reg_buf;
@@ -239,7 +261,13 @@ int main(int argc, char **argv) {
             long inserting = replace_lsb(old_data, 0xcc);
             ptrace(PTRACE_POKEDATA, child_pid, (void *)new->address, inserting);
         } else if (0 == strcmp(tokens[0], "i")) {
-            display_breakpoints(breakpoints);
+            if (tokens[1] && 0 == strcmp(tokens[1], "r")) {
+                struct user_regs_struct reg_buf;
+                ptrace(PTRACE_GETREGS, child_pid, NULL, &reg_buf);
+                printf("rax: %llx\n", reg_buf.rax);
+            } else {
+                display_breakpoints(breakpoints);
+            }
         } else if (0 == strcmp(tokens[0], "p")) {
             size_t read_addr = strtol(tokens[1], NULL, 16);
             long data = ptrace(PTRACE_PEEKDATA, child_pid, read_addr, NULL);
