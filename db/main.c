@@ -15,6 +15,8 @@
 #include <elf.h>
 #include <errno.h>
 
+#include "readelf.h"
+
 #define MAXLINE 256
 #define MAXTOKS 64
 
@@ -129,18 +131,6 @@ void wait_for_child(int *status, pid_t child_pid, app_state_t *state, bp_list_t 
         state->is_running = 0;
     }
     if (WIFSTOPPED(*status)) {
-        // printf("process stopped by signal %s\n", strsignal(WSTOPSIG(*status)));
-        // siginfo_t siginfo;
-        // ptrace(PTRACE_GETSIGINFO, child_pid, NULL, &siginfo);
-
-        // if (siginfo.si_signo == SIGTRAP) {
-        //     if (siginfo.si_code == SI_KERNEL) {
-        //         printf("breakpoint!\n");
-        //     } else if (siginfo.si_code == TRAP_TRACE) {
-        //         printf("regular trace.\n");
-        //     }
-        // }
-
         struct user_regs_struct reg_buf;
 
         if (ptrace(PTRACE_GETREGS, child_pid, 0L, &reg_buf) == -1)
@@ -162,9 +152,6 @@ void wait_for_child(int *status, pid_t child_pid, app_state_t *state, bp_list_t 
                 }
                 p = p->next;
             }
-            // if (hit_breakpoint != NULL) {
-            //     printf("hit breakpoint is %lx\n", hit_breakpoint->address);
-            // }
             
             state->in_breakpoint = 1;
             state->breakpoint = hit_breakpoint;
@@ -202,6 +189,21 @@ int main(int argc, char **argv) {
     curr_state.in_breakpoint = 0;
     curr_state.is_running = 0;
     curr_state.breakpoint = NULL;
+
+    FILE *target_fd = fopen(target, "rb");
+    if (target_fd == NULL) {
+        printf("Target file %s doesn't exist\n", target);
+        exit(1);
+    }
+
+    fseek(target_fd, 0, SEEK_END);
+    long target_size = ftell(target_fd);
+    rewind(target_fd);
+
+    char *target_buf = malloc(target_size);
+    fread(target_buf, target_size, 1, target_fd);
+
+    validate(target_buf);
 
     bp_list_t *breakpoints = new_bp_list();
 
