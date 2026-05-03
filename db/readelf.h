@@ -1,6 +1,6 @@
 #ifndef READELF_H
 #define READELF_H
 
-void validate (char *buffer);
+int validate (char *buffer);
 
 #endif

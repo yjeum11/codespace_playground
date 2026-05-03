@@ -131,6 +131,9 @@ void wait_for_child(int *status, pid_t child_pid, app_state_t *state, bp_list_t 
         state->is_running = 0;
     }
     if (WIFSTOPPED(*status)) {
+        if (WSTOPSIG(*status) != SIGTRAP) {
+            
+        }
         struct user_regs_struct reg_buf;
 
         if (ptrace(PTRACE_GETREGS, child_pid, 0L, &reg_buf) == -1)
@@ -203,7 +206,12 @@ int main(int argc, char **argv) {
     char *target_buf = malloc(target_size);
     fread(target_buf, target_size, 1, target_fd);
 
-    validate(target_buf);
+    fclose(target_fd);
+
+    if (validate(target_buf) == -1) {
+        printf("Error while processing executable. exiting..");
+        exit(1);
+    }
 
     bp_list_t *breakpoints = new_bp_list();
 
@@ -325,7 +333,16 @@ int main(int argc, char **argv) {
                 long inserting = replace_lsb(old_data, 0xcc);
                 ptrace(PTRACE_POKEDATA, child_pid, (void *)new->address, inserting);
             }
-        } else if (0 == strcmp(tokens[0], "bt")) {
+        } else if (0 == strcmp(tokens[0], "f")) {
+            // x86-64 stack frame:
+            // 
+
+            printf("Current stack frame: \n");
+            struct user_regs_struct reg_buf;
+            ptrace(PTRACE_GETREGS, child_pid, NULL, &reg_buf);
+            unsigned long long rsp = reg_buf.rsp;
+            unsigned long long rbp = reg_buf.rbp;
+        }else if (0 == strcmp(tokens[0], "bt")) {
 
         } else if (0 == strcmp(tokens[0], "i")) {
             if (tokens[1] && 0 == strcmp(tokens[1], "r")) {
