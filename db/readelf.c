@@ -79,4 +79,5 @@ size_t function_to_address(elf_t *elf, char *name) {
             }
         }
     }
+    return 0;
 }

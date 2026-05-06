@@ -113,10 +113,13 @@ void insert_breakpoints(pid_t child_pid, bp_list_t *bp_list) {
             long old_data = ptrace(PTRACE_PEEKDATA, child_pid, b->address, NULL);
             long new_data = replace_lsb(old_data, 0xcc);
             b->active = 1;
-            if (ptrace(PTRACE_POKEDATA, child_pid, b->address, new_data) == -1){
-                printf("ptrace error\n");
+            if (ptrace(PTRACE_POKEDATA, child_pid, b->address, new_data) == -1) {
                 if (errno == ESRCH) {
                     printf("not stopped\n");
+                }
+                if (errno == EFAULT || errno == EIO) {
+                    printf("breakpoint %d cannot be inserted\n", p->index);
+                    printf("address %lx is not accessible\n", b->address);
                 }
             }
         }
@@ -137,7 +140,7 @@ void wait_for_child(int *status, pid_t child_pid, app_state_t *state, bp_list_t 
         struct user_regs_struct reg_buf;
 
         if (ptrace(PTRACE_GETREGS, child_pid, 0L, &reg_buf) == -1)
-            printf("ptrace error\n");
+            printf("ptrace error in wait_for_child\n");
         
         // CPU increments rip by 1 byte after hitting interrupt
         // after thebreakpoint has been hit, we want to rewind the state of the cpu
@@ -160,13 +163,13 @@ void wait_for_child(int *status, pid_t child_pid, app_state_t *state, bp_list_t 
             state->breakpoint = hit_breakpoint;
             reg_buf.rip -= 1;
             if (ptrace(PTRACE_SETREGS, child_pid, NULL, &reg_buf) == -1) {
-                printf("ptrace error 1\n");
+                printf("ptrace error 1 in wait_for_child\n");
             }
 
             long old_data = ptrace(PTRACE_PEEKDATA, child_pid, reg_buf.rip, NULL);
             long new_data = replace_lsb(old_data, hit_breakpoint->shadowed);
             if (ptrace(PTRACE_POKEDATA, child_pid, reg_buf.rip, new_data) == -1) {
-                printf("ptrace error 2\n");
+                printf("ptrace error 2 in wait_for_child\n");
             }
         } else {
             state->in_breakpoint = 0;
@@ -329,8 +332,15 @@ int main(int argc, char **argv) {
 
             char *endptr;
             long address = strtol(tokens[1], &endptr, 16);
-            if (tokens[1] == endptr) {
-                new->address = function_to_address(target_elf, tokens[1]);
+            if (*endptr != '\0') {
+                // Not all of the argument was converted to an address
+                // Therefore assume it's a function name
+                if (0 == (address = function_to_address(target_elf, tokens[1]))) {
+                    printf("Function %s could not be found\n", tokens[1]);
+                    free(new);
+                    continue;
+                }
+                new->address = address;
             } else {
                 new->address = address;
             }
@@ -355,7 +365,7 @@ int main(int argc, char **argv) {
             unsigned long long rip = reg_buf.rip;
             unsigned long long rsp = reg_buf.rsp;
             unsigned long long rbp = reg_buf.rbp;
-        }else if (0 == strcmp(tokens[0], "bt")) {
+        } else if (0 == strcmp(tokens[0], "bt")) {
 
         } else if (0 == strcmp(tokens[0], "i")) {
             if (tokens[1] && 0 == strcmp(tokens[1], "r")) {
