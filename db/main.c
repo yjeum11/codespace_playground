@@ -46,7 +46,7 @@ typedef struct bp_list {
 bp_list_t *new_bp_list() {
     bp_list_t *r = malloc(sizeof(bp_list_t));
     r->head = NULL;
-    r->next_index = 0;
+    r->next_index = 1;
     return r;
 }
 
@@ -208,10 +208,15 @@ int main(int argc, char **argv) {
 
     fclose(target_fd);
 
-    if (validate(target_buf) == -1) {
+    elf_t *target_elf;
+
+    if ((target_elf = new_elf(target_buf)) == NULL) {
         printf("Error while processing executable. exiting..");
+        free_elf(target_elf);
         exit(1);
     }
+
+    function_to_address(target_elf, "main");
 
     bp_list_t *breakpoints = new_bp_list();
 
@@ -238,6 +243,7 @@ int main(int argc, char **argv) {
             if (curr_state.is_running)
                 kill(child_pid, SIGKILL);
             free_bp_list(breakpoints);
+            free_elf(target_elf);
             exit(0);
         }
 
@@ -320,12 +326,18 @@ int main(int argc, char **argv) {
         } else if (0 == strcmp(tokens[0], "b")) {
             breakpoint_info_t *new = malloc(sizeof(breakpoint_info_t));
             new->active = curr_state.is_running ? 1 : 0;
-            new->address = strtol(tokens[1], NULL, 16);
+
+            char *endptr;
+            long address = strtol(tokens[1], &endptr, 16);
+            if (tokens[1] == endptr) {
+                new->address = function_to_address(target_elf, tokens[1]);
+            } else {
+                new->address = address;
+            }
             new->shadowed = ptrace(PTRACE_PEEKDATA, child_pid, (void *)new->address, NULL) && 0xFF;
 
-            // TODO: add bp to some structure
             add_breakpoint(breakpoints, new);
-            printf("New breakpoint at address %lx\n", new->address);
+            printf("Breakpoint %d at address %lx\n", breakpoints->next_index - 1, new->address);
 
             if (curr_state.is_running) {
                 // insert INT3 instruction
@@ -340,6 +352,7 @@ int main(int argc, char **argv) {
             printf("Current stack frame: \n");
             struct user_regs_struct reg_buf;
             ptrace(PTRACE_GETREGS, child_pid, NULL, &reg_buf);
+            unsigned long long rip = reg_buf.rip;
             unsigned long long rsp = reg_buf.rsp;
             unsigned long long rbp = reg_buf.rbp;
         }else if (0 == strcmp(tokens[0], "bt")) {
